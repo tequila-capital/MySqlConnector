@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 using MySqlConnector.Protocol.Serialization;
 using MySqlConnector.Utilities;
 
@@ -175,6 +176,11 @@ public sealed class MySqlBulkLoader
 		{
 			if (Local)
 			{
+				if (S3PrefixRegex.IsMatch (FileName))
+				{
+					throw new InvalidOperationException("Local must be false to use S3 path.");
+				}
+
 				// replace the file name with a sentinel so that we know (when processing the result set) that it's not spoofed by the server
 				var newFileName = GenerateSourceFileName();
 				lock (s_lock)
@@ -225,6 +231,7 @@ public sealed class MySqlBulkLoader
 	}
 
 	internal const string SourcePrefix = ":SOURCE:";
+	internal static Regex S3PrefixRegex = new Regex(@"^(s3-(.*)|s3):\/\/.*$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
 	internal object? Source { get; set; }
 
@@ -239,10 +246,17 @@ public sealed class MySqlBulkLoader
 			_ => "",
 		});
 
-		if (Local)
-			sb.Append("LOCAL ");
+		if (S3PrefixRegex.IsMatch(FileName!))
+		{
+			sb.AppendFormat(CultureInfo.InvariantCulture, "FROM S3 '{0}' ", FileName!);
+		}
+		else
+		{
+			if (Local)
+				sb.Append("LOCAL ");
 
-		sb.AppendFormat(CultureInfo.InvariantCulture, "INFILE '{0}' ", MySqlHelper.EscapeString(FileName!));
+			sb.AppendFormat(CultureInfo.InvariantCulture, "INFILE '{0}' ", MySqlHelper.EscapeString(FileName!));
+		}
 
 		sb.Append(ConflictOption switch
 		{
